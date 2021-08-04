@@ -99,6 +99,13 @@ pub enum Edge {
     BothEdges,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Bias {
+    Disable,
+    PullUp,
+    PullDown,
+}
+
 #[macro_export]
 macro_rules! try_unexport {
     ($gpio:ident, $e:expr) => {
@@ -443,6 +450,36 @@ impl Pin {
             match active_low {
                 true => "1",
                 false => "0",
+            },
+        )?;
+
+        Ok(())
+    }
+
+    /// Get the bias of the Pin
+    pub fn get_bias(&self) -> Result<Bias> {
+        match self.read_from_device_file("bias") {
+            Ok(s) => match s.trim() {
+                "disable" => Ok(Bias::Disable),
+                "pull-up" => Ok(Bias::PullUp),
+                "pull-down" => Ok(Bias::PullDown),
+                other => Err(Error::Unexpected(format!(
+                    "Unexpected file contents {}",
+                    other
+                ))),
+            },
+            Err(e) => Err(::std::convert::From::from(e)),
+        }
+    }
+
+    /// Set the bias of the Pin
+    pub fn set_bias(&self, bias: Bias) -> Result<()> {
+        self.write_to_device_file(
+            "bias",
+            match bias {
+                Bias::Disable => "disable",
+                Bias::PullUp => "pull-up",
+                Bias::PullDown => "pull-down",
             },
         )?;
 
