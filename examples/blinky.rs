@@ -6,8 +6,6 @@
 // option.  This file may not be copied, modified, or distributed
 // except according to those terms.
 
-extern crate sysfs_gpio;
-
 use std::env;
 use std::thread::sleep;
 use std::time::Duration;
@@ -58,9 +56,9 @@ fn get_args() -> Option<Arguments> {
         Err(_) => return None,
     };
     Some(Arguments {
-        pin: pin,
-        duration_ms: duration_ms,
-        period_ms: period_ms,
+        pin,
+        duration_ms,
+        period_ms,
     })
 }
 

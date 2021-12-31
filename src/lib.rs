@@ -13,7 +13,7 @@
 //!
 //! The methods exposed by this library are centered around
 //! the `Pin` struct and map pretty directly the API exposed
-//! by the kernel in syfs (https://www.kernel.org/doc/Documentation/gpio/sysfs.txt).
+//! by the kernel in syfs <https://www.kernel.org/doc/Documentation/gpio/sysfs.txt>.
 //!
 //! # Examples
 //!
@@ -22,8 +22,6 @@
 //! the following:
 //!
 //! ```no_run
-//! extern crate sysfs_gpio;
-//!
 //! use sysfs_gpio::{Direction, Pin};
 //! use std::thread::sleep;
 //! use std::time::Duration;
@@ -42,37 +40,40 @@
 //! }
 //! ```
 
-#[cfg(feature = "use_tokio")]
+#![cfg_attr(feature = "async-tokio", allow(deprecated))]
+
+#[cfg(feature = "async-tokio")]
 extern crate futures;
 #[cfg(feature = "mio-evented")]
 extern crate mio;
 #[cfg(not(target_os = "wasi"))]
 extern crate nix;
-#[cfg(feature = "use_tokio")]
+#[cfg(feature = "async-tokio")]
 extern crate tokio;
 
-use std::fs;
-use std::fs::File;
 use std::io;
 use std::io::prelude::*;
-#[cfg(any(target_os = "linux", target_os = "android", feature = "use_tokio"))]
+#[cfg(any(target_os = "linux", target_os = "android", feature = "async-tokio"))]
 use std::io::SeekFrom;
 #[cfg(not(target_os = "wasi"))]
 use std::os::unix::prelude::*;
 use std::path::Path;
+use std::{fs, fs::File};
 
-#[cfg(feature = "use_tokio")]
-use futures::{Async, Poll, Stream};
+#[cfg(feature = "async-tokio")]
+use futures::{ready, Stream};
 #[cfg(feature = "mio-evented")]
-use mio::unix::EventedFd;
+use mio::event::Source;
 #[cfg(feature = "mio-evented")]
-use mio::Evented;
+use mio::unix::SourceFd;
 #[cfg(any(target_os = "linux", target_os = "android"))]
 use nix::sys::epoll::*;
 #[cfg(not(target_os = "wasi"))]
 use nix::unistd::close;
-#[cfg(feature = "use_tokio")]
-use tokio::reactor::{Handle, PollEvented};
+#[cfg(feature = "async-tokio")]
+use std::task::Poll;
+#[cfg(feature = "async-tokio")]
+use tokio::io::unix::AsyncFd;
 
 pub use error::Error;
 
@@ -133,7 +134,7 @@ fn flush_input_from_file(dev_file: &mut File, max: usize) -> io::Result<usize> {
 }
 
 /// Get the pin value from the provided file
-#[cfg(any(target_os = "linux", target_os = "android", feature = "use_tokio"))]
+#[cfg(any(target_os = "linux", target_os = "android", feature = "async-tokio"))]
 fn get_value_from_file(dev_file: &mut File) -> Result<u8> {
     let mut s = String::with_capacity(10);
     dev_file.seek(SeekFrom::Start(0))?;
@@ -168,7 +169,7 @@ impl Pin {
     ///
     /// This function does not export the provided pin_num.
     pub fn new(pin_num: u64) -> Pin {
-        Pin { pin_num: pin_num }
+        Pin { pin_num }
     }
 
     /// Create a new Pin with the provided path
@@ -205,7 +206,7 @@ impl Pin {
             .file_name()
             .and_then(|filename| filename.to_str())
             .and_then(|filename_str| filename_str.trim_start_matches("gpio").parse::<u64>().ok())
-            .ok_or(Error::InvalidPath(format!("{:?}", path.as_ref())))
+            .ok_or_else(|| Error::InvalidPath(format!("{:?}", path.as_ref())))
     }
 
     /// Get the pin number
@@ -512,21 +513,10 @@ impl Pin {
     /// The PinStream object can be used with the `tokio` crate. You should probably call
     /// `set_edge()` before using this.
     ///
-    /// This method is only available when the `use_tokio` crate feature is enabled.
-    #[cfg(feature = "use_tokio")]
-    pub fn get_stream_with_handle(&self, handle: &Handle) -> Result<PinStream> {
-        PinStream::init_with_handle(self.clone(), handle)
-    }
-
-    /// Get a Stream of pin interrupts for this pin
-    ///
-    /// The PinStream object can be used with the `tokio` crate. You should probably call
-    /// `set_edge()` before using this.
-    ///
-    /// This method is only available when the `use_tokio` crate feature is enabled.
-    #[cfg(feature = "use_tokio")]
+    /// This method is only available when the `async-tokio` crate feature is enabled.
+    #[cfg(feature = "async-tokio")]
     pub fn get_stream(&self) -> Result<PinStream> {
-        PinStream::init(self.clone())
+        PinStream::init(*self)
     }
 
     /// Get a Stream of pin values for this pin
@@ -539,29 +529,10 @@ impl Pin {
     /// it could end up producing the same value multiple times if the value has changed back
     /// between when the interrupt occurred and when the value was read.
     ///
-    /// This method is only available when the `use_tokio` crate feature is enabled.
-    #[cfg(feature = "use_tokio")]
-    pub fn get_value_stream_with_handle(&self, handle: &Handle) -> Result<PinValueStream> {
-        Ok(PinValueStream(PinStream::init_with_handle(
-            self.clone(),
-            handle,
-        )?))
-    }
-
-    /// Get a Stream of pin values for this pin
-    ///
-    /// The PinStream object can be used with the `tokio` crate. You should probably call
-    /// `set_edge(Edge::BothEdges)` before using this.
-    ///
-    /// Note that the values produced are the value of the pin as soon as we get to handling the
-    /// interrupt in userspace.  Each time this stream produces a value, a change has occurred, but
-    /// it could end up producing the same value multiple times if the value has changed back
-    /// between when the interrupt occurred and when the value was read.
-    ///
-    /// This method is only available when the `use_tokio` crate feature is enabled.
-    #[cfg(feature = "use_tokio")]
+    /// This method is only available when the `async-tokio` crate feature is enabled.
+    #[cfg(feature = "async-tokio")]
     pub fn get_value_stream(&self) -> Result<PinValueStream> {
-        Ok(PinValueStream(PinStream::init(self.clone())?))
+        Ok(PinValueStream(PinStream::init(*self)?))
     }
 }
 
@@ -574,9 +545,9 @@ fn extract_pin_fom_path_test() {
     let tok3 = Pin::extract_pin_from_path(&"../../devices/soc0/gpiochip3/gpio/gpio124");
     assert_eq!(124, tok3.unwrap());
     let err1 = Pin::extract_pin_from_path(&"/sys/CLASS/gpio/gpio");
-    assert_eq!(true, err1.is_err());
+    assert!(err1.is_err());
     let err2 = Pin::extract_pin_from_path(&"/sys/class/gpio/gpioSDS");
-    assert_eq!(true, err2.is_err());
+    assert!(err2.is_err());
 }
 #[cfg(not(target_os = "wasi"))]
 #[derive(Debug)]
@@ -605,9 +576,9 @@ impl PinPoller {
 
         match epoll_ctl(epoll_fd, EpollOp::EpollCtlAdd, devfile_fd, &mut event) {
             Ok(_) => Ok(PinPoller {
-                pin_num: pin_num,
-                devfile: devfile,
-                epoll_fd: epoll_fd,
+                pin_num,
+                devfile,
+                epoll_fd,
             }),
             Err(err) => {
                 let _ = close(epoll_fd); // cleanup
@@ -676,88 +647,82 @@ pub struct AsyncPinPoller {
 impl AsyncPinPoller {
     fn new(pin_num: u64) -> Result<Self> {
         let devfile = File::open(&format!("/sys/class/gpio/gpio{}/value", pin_num))?;
-        Ok(AsyncPinPoller { devfile: devfile })
+        Ok(AsyncPinPoller { devfile })
     }
 }
 
 #[cfg(feature = "mio-evented")]
-impl Evented for AsyncPinPoller {
+impl Source for AsyncPinPoller {
     fn register(
-        &self,
-        poll: &mio::Poll,
+        &mut self,
+        poll: &mio::Registry,
         token: mio::Token,
-        interest: mio::Ready,
-        opts: mio::PollOpt,
+        interest: mio::Interest,
     ) -> io::Result<()> {
-        EventedFd(&self.devfile.as_raw_fd()).register(poll, token, interest, opts)
+        SourceFd(&self.as_raw_fd()).register(poll, token, interest)
     }
 
     fn reregister(
-        &self,
-        poll: &mio::Poll,
+        &mut self,
+        poll: &mio::Registry,
         token: mio::Token,
-        interest: mio::Ready,
-        opts: mio::PollOpt,
+        interest: mio::Interest,
     ) -> io::Result<()> {
-        EventedFd(&self.devfile.as_raw_fd()).reregister(poll, token, interest, opts)
+        SourceFd(&self.as_raw_fd()).reregister(poll, token, interest)
     }
 
-    fn deregister(&self, poll: &mio::Poll) -> io::Result<()> {
-        EventedFd(&self.devfile.as_raw_fd()).deregister(poll)
+    fn deregister(&mut self, poll: &mio::Registry) -> io::Result<()> {
+        SourceFd(&self.as_raw_fd()).deregister(poll)
     }
 }
 
-#[cfg(feature = "use_tokio")]
+#[cfg(any(feature = "async-tokio", feature = "mio-evented"))]
+impl AsRawFd for AsyncPinPoller {
+    fn as_raw_fd(&self) -> RawFd {
+        self.devfile.as_raw_fd()
+    }
+}
+
+#[cfg(feature = "async-tokio")]
 pub struct PinStream {
-    evented: PollEvented<AsyncPinPoller>,
+    evented: AsyncFd<AsyncPinPoller>,
     skipped_first_event: bool,
 }
 
-#[cfg(feature = "use_tokio")]
-impl PinStream {
-    pub fn init_with_handle(pin: Pin, handle: &Handle) -> Result<Self> {
-        Ok(PinStream {
-            evented: PollEvented::new(pin.get_async_poller()?, &handle)?,
-            skipped_first_event: false,
-        })
-    }
-}
-
-#[cfg(feature = "use_tokio")]
+#[cfg(feature = "async-tokio")]
 impl PinStream {
     pub fn init(pin: Pin) -> Result<Self> {
         Ok(PinStream {
-            evented: PollEvented::new(pin.get_async_poller()?, &Handle::default())?,
+            evented: AsyncFd::new(pin.get_async_poller()?)?,
             skipped_first_event: false,
         })
     }
 }
 
-#[cfg(feature = "use_tokio")]
+#[cfg(feature = "async-tokio")]
 impl Stream for PinStream {
-    type Item = ();
-    type Error = Error;
+    type Item = Result<()>;
 
-    fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
-        Ok(match self.evented.poll_read() {
-            Async::Ready(()) => {
-                self.evented.need_read();
-                if self.skipped_first_event {
-                    Async::Ready(Some(()))
-                } else {
-                    self.skipped_first_event = true;
-                    Async::NotReady
-                }
+    fn poll_next(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> Poll<Option<Self::Item>> {
+        loop {
+            let mut guard = ready!(self.evented.poll_read_ready(cx))?;
+            guard.clear_ready();
+            if self.skipped_first_event {
+                return Poll::Ready(Some(Ok(())));
+            } else {
+                self.skipped_first_event = true;
             }
-            Async::NotReady => Async::NotReady,
-        })
+        }
     }
 }
 
-#[cfg(feature = "use_tokio")]
+#[cfg(feature = "async-tokio")]
 pub struct PinValueStream(PinStream);
 
-#[cfg(feature = "use_tokio")]
+#[cfg(feature = "async-tokio")]
 impl PinValueStream {
     #[inline]
     fn get_value(&mut self) -> Result<u8> {
@@ -765,20 +730,15 @@ impl PinValueStream {
     }
 }
 
-#[cfg(feature = "use_tokio")]
+#[cfg(feature = "async-tokio")]
 impl Stream for PinValueStream {
-    type Item = u8;
-    type Error = Error;
+    type Item = Result<u8>;
 
-    fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
-        match self.0.poll() {
-            Ok(Async::Ready(Some(()))) => {
-                let value = self.get_value()?;
-                Ok(Async::Ready(Some(value)))
-            }
-            Ok(Async::Ready(None)) => Ok(Async::Ready(None)),
-            Ok(Async::NotReady) => Ok(Async::NotReady),
-            Err(e) => Err(e),
-        }
+    fn poll_next(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> Poll<Option<Self::Item>> {
+        ready!(std::pin::Pin::new(&mut self.0).poll_next(cx));
+        Poll::Ready(Some(Ok(self.get_value()?)))
     }
 }

@@ -1,8 +1,9 @@
 sysfs_gpio
 ==========
 
-[![Build Status](https://travis-ci.org/rust-embedded/rust-sysfs-gpio.svg?branch=master)](https://travis-ci.org/rust-embedded/rust-sysfs-gpio)
+[![Build Status](https://github.com/rust-embedded/rust-sysfs-gpio/workflows/CI/badge.svg)](https://github.com/rust-embedded/rust-sysfs-gpio/actions)
 [![Version](https://img.shields.io/crates/v/sysfs-gpio.svg)](https://crates.io/crates/sysfs-gpio)
+![Minimum Supported Rust Version](https://img.shields.io/badge/rustc-1.46+-blue.svg)
 [![License](https://img.shields.io/crates/l/sysfs-gpio.svg)](https://github.com/rust-embedded/rust-sysfs-gpio/blob/master/README.md#license)
 
 - [API Documentation](https://docs.rs/sysfs_gpio)
@@ -27,13 +28,13 @@ To use `sysfs_gpio`, first add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-sysfs_gpio = "0.5"
+sysfs_gpio = "0.6"
 ```
 
 Then, add this to your crate root:
 
 ```rust
-extern crate sysfs_gpio;
+use sysfs_gpio;
 ```
 
 ## Example/API
@@ -41,8 +42,6 @@ extern crate sysfs_gpio;
 Blinking an LED:
 
 ```rust
-extern crate sysfs_gpio;
-
 use sysfs_gpio::{Direction, Pin};
 use std::thread::sleep;
 use std::time::Duration;
@@ -82,11 +81,11 @@ The following features are planned for the library:
 - [x] Support for configuring interrupts on GPIO
 - [x] Support for polling on GPIO with configured interrupt
 - [x] Support for asynchronous polling using `mio` or `tokio` (requires
-      enabling the `mio-evented` or `use_tokio` crate features, respectively)
+      enabling the `mio-evented` or `async-tokio` crate features, respectively)
 
 ## Minimum Supported Rust Version (MSRV)
 
-This crate is guaranteed to compile on stable Rust 1.31 and up.  It *might*
+This crate is guaranteed to compile on stable Rust 1.46.0 and up.  It *might*
 compile with older versions but that may change in any new patch release.
 
 ## Cross Compiling
